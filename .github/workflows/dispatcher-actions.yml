@@ -6,20 +6,10 @@
 # Blog: https://p3terx.com
 #=================================================
 
-name: Openwrt-AutoBuild
+name: Build OpenWrt
 
 on: 
-  # push: 
-  #   branches:
-  #     - master
-  # schedule:
-  #   - cron: 30 13 * * 6
-  workflow_dispatch:
-    inputs:
-      ssh:
-        description: 'SSH connection to Actions'
-        required: false
-        default: 'false'
+  repository_dispatch:
 
 env:
   REPO_TOKEN: ${{ secrets.REPO_TOKEN }}
@@ -39,7 +29,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [x86_64,phicomm-k2p,redmi-ac2100,nanopi-r2s]
+        target: ["${{ github.event.client_payload.target }}"]
         
     steps:
     - name: Checkout
@@ -63,7 +53,7 @@ jobs:
         echo "UPLOAD_FIRMWARE_TO_WETRANSFER=${UPLOAD_FIRMWARE_TO_WETRANSFER}" >> $GITHUB_ENV
 
     - name: Trigger Packages Update
-      if: github.event.repository.owner.id == '48883331' && matrix.target == 'x86_64'
+      if: github.event.repository.owner.id == '48883331'
       run: |
         curl -X POST https://api.github.com/repos/garypang13/openwrt-packages/dispatches \
         -H "Accept: application/vnd.github.everest-preview+json" \
@@ -94,11 +84,11 @@ jobs:
         git clone --depth 1 $REPO_URL -b $REPO_BRANCH openwrt
         if [ -f "devices/common/feeds.conf" ]; then
           mv devices/common/feeds.conf openwrt/
-        fi
+        fi       
         if [ -f "devices/${{matrix.target}}/feeds.conf" ]; then
           mv devices/${{matrix.target}}/feeds.conf openwrt/
         fi
-
+      
     - name: Free up disk space
       if: env.FREE_UP_DISK == 'true'
       env:
@@ -160,7 +150,7 @@ jobs:
               
     - name: SSH connection to Actions
       uses: garypang13/debugger-action@master
-      if: github.event.inputs.ssh == 'true'
+      if: contains(github.event.action, 'ssh')
 
     - name: Download package
       id: package
@@ -208,15 +198,15 @@ jobs:
         rand=$[$RANDOM % ${#Emoji[@]}]
         echo "EMOJI=${Emoji[$rand]}" >> $GITHUB_ENV
         if [ ${{matrix.target}} == "phicomm-k2p" ]; then
-          echo "NOTICE=刷机时breed里的闪存布局请选择斐讯而非默认的公版" >> $GITHUB_ENV
-          elif [ ${{matrix.target}} == "x86_64" ]; then
-          echo "NOTICE=请分配不少于800M的存储容量" >> $GITHUB_ENV
+        echo "NOTICE=刷机时breed里的闪存布局请选择斐讯而非默认的公版" >> $GITHUB_ENV
+        elif [ ${{matrix.target}} == "x86_64" ]; then
+        echo "NOTICE=请分配不少于800M的存储容量" >> $GITHUB_ENV
         fi
 
     - name: Deploy files to server
       uses: easingthemes/ssh-deploy@master
       continue-on-error: true
-      if: env.SSH_PRIVATE_KEY
+      if: env.SSH_PRIVATE_KEY && ! contains(github.event.action, 'noser')
       with:
         SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
         ARGS: "-avzr --exclude="
@@ -236,7 +226,7 @@ jobs:
         echo "Download Link: ${{ env.EMOJI }} $cowurl ${{ env.EMOJI }} 🚀"
  
     - name: Upload firmware to WeTransfer
-      if: env.UPLOAD_FIRMWARE_TO_WETRANSFER == 'true'
+      if: env.UPLOAD_FIRMWARE_TO_WETRANSFER == 'true' && ! contains(github.event.action, 'noup')
       continue-on-error: true
       run: |
         curl -fsSL git.io/file-transfer | sh
@@ -247,8 +237,8 @@ jobs:
 
     - name: Create release
       id: create_release
-      continue-on-error: true
       if: env.REPO_TOKEN && env.UPLOAD_FIRMWARE_FOR_RELEASE == 'true'
+      continue-on-error: true
       run: |
         echo -e "墙内加速下载 🚀:\n" >> release.txt
         echo -e "[腾讯云] (https://op.supes.top/firmware/${{matrix.target}}/ ☁)\n" >> release.txt
@@ -282,10 +272,10 @@ jobs:
         [ steps.compile.outputs.status == 'success' ] && curl https://sc.ftqq.com/${{ secrets.SCKEY }}.send?text=🎉OpenWrt_${{ env.date3 }}_${{matrix.target}}编译完成😋|| curl https://sc.ftqq.com/${{ secrets.SCKEY }}.send?text=❌OpenWrt_${{ env.date3 }}_${{matrix.target}}编译失败😂
 
     - name: Telegram notification
-      if: env.TELEGRAM_TOKEN
+      if: env.TELEGRAM_TOKEN && ! contains(github.event.action, 'notg')
       continue-on-error: true
       run: |
-        [ steps.compile.outputs.status == 'success' ] && curl -k --data chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" --data "text=🎉 OpenWrt ${{ env.date3 }} ${{matrix.target}} 编译成功 😋  https://op.supes.top/firmware/${{matrix.target}}/  ${{ env.COWURL }}   ${{ env.WETRANS }} 🚀" "https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage" || curl -k --data chat_id="${{ secrets.TELEGRAM_TO }}" --data "text=❌ OpenWrt ${{ env.date3 }} ${{matrix.target}} 编译失败 😂" "https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage"
+        # [ steps.compile.outputs.status == 'success' ] && curl -k --data chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" --data "text=🎉 OpenWrt ${{ env.date3 }} ${{matrix.target}} 编译成功 😋  https://op.supes.top/firmware/${{matrix.target}}/  ${{ env.COWURL }}   ${{ env.WETRANS }} 🚀" "https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage" || curl -k --data chat_id="${{ secrets.TELEGRAM_TO }}" --data "text=❌ OpenWrt ${{ env.date3 }} ${{matrix.target}} 编译失败 😂" "https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage"
 
     - name: Delete workflow runs
       uses: ActionsRML/delete-workflow-runs@main
